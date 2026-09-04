@@ -1,5 +1,7 @@
 # @0x1f/pi-smart-proxy
 
+**English** | [简体中文](README.zh-CN.md)
+
 A small [Pi](https://pi.dev) extension that routes Undici traffic by target domain, IP address, or CIDR through direct connections, HTTP(S) proxies, or SOCKS5 proxies.
 
 SOCKS5 target names are resolved by the proxy. Both `socks5://` and the familiar `socks5h://` spelling are accepted.

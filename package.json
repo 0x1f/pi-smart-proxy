@@ -24,6 +24,7 @@
     "extensions/",
     "examples/",
     "README.md",
+    "README.zh-CN.md",
     "LICENSE"
   ],
   "engines": {
