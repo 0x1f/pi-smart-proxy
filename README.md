@@ -1,6 +1,6 @@
 # @0x1f/pi-smart-proxy
 
-A small [Pi](https://pi.dev) extension that routes Undici traffic by target domain through direct connections, HTTP(S) proxies, or SOCKS5 proxies.
+A small [Pi](https://pi.dev) extension that routes Undici traffic by target domain, IP address, or CIDR through direct connections, HTTP(S) proxies, or SOCKS5 proxies.
 
 SOCKS5 target names are resolved by the proxy. Both `socks5://` and the familiar `socks5h://` spelling are accepted.
 
@@ -18,7 +18,7 @@ index.ts                          # Local auto-discovery compatibility loader
 Requires Node.js 22.19 or newer. Install the tagged Git repository:
 
 ```bash
-pi install git:github.com/0x1f/pi-smart-proxy@v0.1.3
+pi install git:github.com/0x1f/pi-smart-proxy@v0.2.0
 ```
 
 ## Configure
@@ -44,17 +44,25 @@ chmod 600 ~/.pi/smart-proxy.json
         ".chatgpt.com",
         ".x.ai",
         ".grok.com"
+      ],
+      "cidrs": [
+        "192.0.2.0/24",
+        "2001:db8::/32"
       ]
     }
   ]
 }
 ```
 
-Rules are checked in order:
+Rules are checked in order, and each rule may contain `domains`, `cidrs`, or both:
 
 - `example.com` matches only that host.
 - `*.example.com` matches subdomains, but not the apex.
 - `.example.com` matches the apex and all subdomains.
+- `1.1.1.1` and `2001:db8::1` match exact IPv4 and IPv6 targets.
+- `10.0.0.0/8` and `2001:db8::/32` match literal target IPs in those ranges.
+
+CIDR rules never resolve hostnames locally, preserving SOCKS5 proxy-side DNS and avoiding DNS leaks.
 
 Proxy URLs may use `http:`, `https:`, `socks:`, `socks5:`, or `socks5h:`. HTTP and SOCKS5 username/password authentication use standard URL credentials:
 

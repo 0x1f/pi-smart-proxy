@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { BlockList, isIP } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { domainToASCII } from "node:url";
@@ -22,7 +23,18 @@ export const CONFIG_PATH = join(homedir(), ".pi", "smart-proxy.json");
 export type SmartProxyConfig = {
   default: string;
   proxies: Record<string, string>;
-  rules: Array<{ via: string; domains: string[] }>;
+  rules: Array<{ via: string; domains: string[]; cidrs: string[] }>;
+};
+
+type IPAddress = {
+  address: string;
+  family: "ipv4" | "ipv6";
+};
+
+type CidrPattern = {
+  source: string;
+  family: IPAddress["family"];
+  block: BlockList;
 };
 
 type Pattern = {
@@ -48,6 +60,31 @@ function onlyKeys(value: Record<string, unknown>, allowed: string[], label: stri
   if (unknown.length) throw new Error(`${label} has unknown key: ${unknown[0]}`);
 }
 
+function normalizeIPAddress(value: string): IPAddress | undefined {
+  const input = value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value;
+  const version = isIP(input);
+  if (!version) return undefined;
+  const address =
+    version === 4 ? new URL(`http://${input}`).hostname : new URL(`http://[${input}]`).hostname.slice(1, -1);
+  return { address, family: version === 4 ? "ipv4" : "ipv6" };
+}
+
+function compileCidr(value: string): CidrPattern {
+  const parts = value.trim().split("/");
+  if (parts.length !== 2 || !parts[0] || !/^\d+$/.test(parts[1]!)) {
+    throw new Error("must use IP/prefix notation");
+  }
+  const ip = normalizeIPAddress(parts[0]);
+  if (!ip) throw new Error("must start with an IPv4 or IPv6 address");
+  const prefix = Number(parts[1]);
+  const maximum = ip.family === "ipv4" ? 32 : 128;
+  if (prefix > maximum) throw new Error(`prefix must be between 0 and ${maximum}`);
+
+  const block = new BlockList();
+  block.addSubnet(ip.address, prefix, ip.family);
+  return { source: `${ip.address}/${prefix}`, family: ip.family, block };
+}
+
 function compilePattern(value: string): Pattern {
   const input = value.trim().toLowerCase();
   let mode: Pattern["mode"] = "exact";
@@ -62,7 +99,12 @@ function compilePattern(value: string): Pattern {
   }
 
   base = base.replace(/\.$/, "");
-  if (!base.includes(".") || base.includes("*")) throw new Error("must be a domain name");
+  const ip = normalizeIPAddress(base);
+  if (ip) {
+    if (mode !== "exact") throw new Error("IP address patterns must be exact");
+    return { source: ip.address, base: ip.address, mode };
+  }
+  if (!base.includes(".") || base.includes("*")) throw new Error("must be a domain name or IP address");
 
   const ascii = domainToASCII(base);
   if (!ascii) throw new Error("must be a valid domain name");
@@ -82,7 +124,7 @@ function compilePattern(value: string): Pattern {
 
 function normalizeHostname(hostname: string): string {
   const value = hostname.toLowerCase().replace(/\.$/, "");
-  return domainToASCII(value) || value;
+  return normalizeIPAddress(value)?.address ?? (domainToASCII(value) || value);
 }
 
 function matchesCompiled(hostname: string, pattern: Pattern): boolean {
@@ -139,18 +181,24 @@ export function parseConfig(value: unknown): SmartProxyConfig {
   const ruleInput = raw.rules ?? [];
   if (!Array.isArray(ruleInput)) throw new Error("rules must be an array");
 
-  const seen = new Set<string>();
+  const seenDomains = new Set<string>();
+  const seenCidrs = new Set<string>();
   const rules = ruleInput.map((item, ruleIndex) => {
     const rule = asRecord(item, `rules[${ruleIndex}]`);
-    onlyKeys(rule, ["via", "domains"], `rules[${ruleIndex}]`);
+    onlyKeys(rule, ["via", "domains", "cidrs"], `rules[${ruleIndex}]`);
     if (typeof rule.via !== "string" || !routes.has(rule.via)) {
       throw new Error(`rules[${ruleIndex}].via names an unknown route`);
     }
-    if (!Array.isArray(rule.domains) || rule.domains.length === 0) {
-      throw new Error(`rules[${ruleIndex}].domains must be a non-empty array`);
+
+    const domainInput = rule.domains ?? [];
+    const cidrInput = rule.cidrs ?? [];
+    if (!Array.isArray(domainInput)) throw new Error(`rules[${ruleIndex}].domains must be an array`);
+    if (!Array.isArray(cidrInput)) throw new Error(`rules[${ruleIndex}].cidrs must be an array`);
+    if (domainInput.length === 0 && cidrInput.length === 0) {
+      throw new Error(`rules[${ruleIndex}] must contain domains or cidrs`);
     }
 
-    const domains = rule.domains.map((domain, domainIndex) => {
+    const domains = domainInput.map((domain, domainIndex) => {
       if (typeof domain !== "string") {
         throw new Error(`rules[${ruleIndex}].domains[${domainIndex}] must be a string`);
       }
@@ -161,12 +209,28 @@ export function parseConfig(value: unknown): SmartProxyConfig {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`rules[${ruleIndex}].domains[${domainIndex}] ${message}`);
       }
-      if (seen.has(pattern.source)) throw new Error(`duplicate domain rule: ${pattern.source}`);
-      seen.add(pattern.source);
+      if (seenDomains.has(pattern.source)) throw new Error(`duplicate domain rule: ${pattern.source}`);
+      seenDomains.add(pattern.source);
       return pattern.source;
     });
 
-    return { via: rule.via, domains };
+    const cidrs = cidrInput.map((cidr, cidrIndex) => {
+      if (typeof cidr !== "string") {
+        throw new Error(`rules[${ruleIndex}].cidrs[${cidrIndex}] must be a string`);
+      }
+      let pattern: CidrPattern;
+      try {
+        pattern = compileCidr(cidr);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`rules[${ruleIndex}].cidrs[${cidrIndex}] ${message}`);
+      }
+      if (seenCidrs.has(pattern.source)) throw new Error(`duplicate CIDR rule: ${pattern.source}`);
+      seenCidrs.add(pattern.source);
+      return pattern.source;
+    });
+
+    return { via: rule.via, domains, cidrs };
   });
 
   return { default: defaultRoute, proxies, rules };
@@ -207,7 +271,7 @@ function createProxyDispatcher(proxyUrl: string): Dispatcher {
 export class RoutingDispatcher extends Dispatcher {
   readonly config: SmartProxyConfig;
   readonly #dispatchers = new Map<string, Dispatcher>();
-  readonly #rules: Array<{ via: string; patterns: Pattern[] }>;
+  readonly #rules: Array<{ via: string; patterns: Pattern[]; cidrs: CidrPattern[] }>;
 
   constructor(config: SmartProxyConfig) {
     super();
@@ -219,14 +283,20 @@ export class RoutingDispatcher extends Dispatcher {
     this.#rules = config.rules.map((rule) => ({
       via: rule.via,
       patterns: rule.domains.map(compilePattern),
+      cidrs: rule.cidrs.map(compileCidr),
     }));
   }
 
   routeFor(hostname: string): Decision {
     const host = normalizeHostname(hostname);
+    const ip = normalizeIPAddress(host);
     for (const rule of this.#rules) {
       const pattern = rule.patterns.find((candidate) => matchesCompiled(host, candidate));
       if (pattern) return { via: rule.via, pattern: pattern.source };
+      const cidr = ip
+        ? rule.cidrs.find((candidate) => candidate.family === ip.family && candidate.block.check(ip.address, ip.family))
+        : undefined;
+      if (cidr) return { via: rule.via, pattern: cidr.source };
     }
     return { via: this.config.default };
   }
@@ -281,8 +351,11 @@ export function httpStatusColor(status: number): "success" | "warning" | "error"
 
 function testUrl(input: string): URL {
   const value = input.trim();
-  if (!value) throw new Error("usage: /proxy-test <hostname-or-url>");
-  const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`);
+  if (!value) throw new Error("usage: /proxy-test <host-or-url>");
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+  const ip = hasScheme ? undefined : normalizeIPAddress(value);
+  const target = hasScheme ? value : ip?.family === "ipv6" ? `https://[${ip.address}]` : `https://${value}`;
+  const url = new URL(target);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("proxy-test supports only HTTP(S) targets");
   }
@@ -311,8 +384,8 @@ export default function smartProxy(pi: ExtensionAPI): void {
   };
 
   const setStatus = (ctx: Pick<ExtensionContext, "ui">, dispatcher: RoutingDispatcher): void => {
-    const count = dispatcher.config.rules.reduce((total, rule) => total + rule.domains.length, 0);
-    ctx.ui.setStatus(STATUS_ID, ctx.ui.theme.fg("accent", `proxy: ${count} domains`));
+    const count = dispatcher.config.rules.reduce((total, rule) => total + rule.domains.length + rule.cidrs.length, 0);
+    ctx.ui.setStatus(STATUS_ID, ctx.ui.theme.fg("accent", `proxy: ${count} targets`));
   };
 
   pi.on("session_start", async (_event, ctx) => {
@@ -401,15 +474,15 @@ export default function smartProxy(pi: ExtensionAPI): void {
       const routes = Object.entries(active.config.proxies)
         .map(([name, value]) => `${name}=${redactProxyUrl(value)}`)
         .join(", ");
-      const domains = active.config.rules.reduce((total, rule) => total + rule.domains.length, 0);
+      const targets = active.config.rules.reduce((total, rule) => total + rule.domains.length + rule.cidrs.length, 0);
       const owner = getGlobalDispatcher() === active ? "active" : "overridden";
-      const message = `smart-proxy ${owner}\ndefault=${active.config.default}\nroutes=${routes || "direct only"}\nrules=${domains}\nconfig=${CONFIG_PATH}`;
+      const message = `smart-proxy ${owner}\ndefault=${active.config.default}\nroutes=${routes || "direct only"}\nrules=${active.config.rules.length}\ntargets=${targets}\nconfig=${CONFIG_PATH}`;
       ctx.ui.notify(owner === "active" ? ctx.ui.theme.fg("accent", message) : message, owner === "active" ? "info" : "warning");
     },
   });
 
   pi.registerCommand("proxy-test", {
-    description: "Test the route and connectivity for a hostname or URL",
+    description: "Test the route and connectivity for a hostname, IP, or URL",
     handler: async (args, ctx) => {
       if (!active) {
         ctx.ui.notify("smart-proxy is inactive", "error");
