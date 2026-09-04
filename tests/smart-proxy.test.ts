@@ -3,6 +3,7 @@ import test from "node:test";
 import { getGlobalDispatcher } from "undici";
 import smartProxy, {
   RoutingDispatcher,
+  httpStatusColor,
   matchesDomain,
   parseConfig,
 } from "../extensions/smart-proxy/index.ts";
@@ -14,6 +15,13 @@ test("domain rules keep exact, wildcard, and suffix semantics distinct", () => {
   assert.equal(matchesDomain("API.Example.Com.", "*.example.com"), true);
   assert.equal(matchesDomain("example.com", ".example.com"), true);
   assert.equal(matchesDomain("deep.api.example.com", ".example.com"), true);
+});
+
+test("HTTP statuses use semantic colors", () => {
+  assert.deepEqual(
+    [199, 200, 299, 300, 399, 400, 599].map(httpStatusColor),
+    ["error", "success", "success", "warning", "warning", "error", "error"],
+  );
 });
 
 test("config is strict and normalizes socks5h to proxy-side DNS SOCKS5", () => {

@@ -273,6 +273,12 @@ function errorText(error: unknown): string {
   return `${error.message}${cause}`;
 }
 
+export function httpStatusColor(status: number): "success" | "warning" | "error" {
+  if (status >= 200 && status < 300) return "success";
+  if (status >= 300 && status < 400) return "warning";
+  return "error";
+}
+
 function testUrl(input: string): URL {
   const value = input.trim();
   if (!value) throw new Error("usage: /proxy-test <hostname-or-url>");
@@ -425,8 +431,9 @@ export default function smartProxy(pi: ExtensionAPI): void {
         });
         await response.body?.cancel();
         const matched = decision.pattern ? `, rule ${decision.pattern}` : ", default";
+        const statusColor = httpStatusColor(response.status);
         ctx.ui.notify(
-          ctx.ui.theme.fg("accent", `${url.hostname} → ${decision.via}${matched}: HTTP ${response.status}`),
+          `${ctx.ui.theme.fg("accent", `${url.hostname} → ${decision.via}${matched}: `)}${ctx.ui.theme.fg(statusColor, `HTTP ${response.status}`)}`,
           "info",
         );
       } catch (error) {

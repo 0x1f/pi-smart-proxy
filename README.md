@@ -18,7 +18,7 @@ index.ts                          # Local auto-discovery compatibility loader
 Requires Node.js 22.19 or newer. Install the tagged Git repository:
 
 ```bash
-pi install git:github.com/0x1f/pi-smart-proxy@v0.1.1
+pi install git:github.com/0x1f/pi-smart-proxy@v0.1.2
 ```
 
 ## Configure
@@ -82,7 +82,7 @@ Restart Pi or run `/reload`, then use:
 
 ## Notes
 
-- Status and route-test results highlight state, routes, matched rules, and HTTP results using the active Pi theme.
+- Status and route-test results use the active Pi theme; HTTP 2xx is green, 3xx yellow, and 4xx/5xx red.
 - The extension restores the previous global Undici dispatcher when Pi unloads it.
 - An explicit `proxy` argument or global proxy setting in `pi-web-access` uses its curl transport and therefore bypasses this dispatcher.
 - Undici currently marks `Socks5ProxyAgent` experimental.
