@@ -1,0 +1,53 @@
+{
+  "name": "@0x1f/pi-smart-proxy",
+  "version": "0.1.0",
+  "description": "Domain-based direct, HTTP, and SOCKS5 proxy routing for Pi",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "proxy",
+    "socks5"
+  ],
+  "homepage": "https://github.com/0x1f/pi-smart-proxy#readme",
+  "bugs": {
+    "url": "https://github.com/0x1f/pi-smart-proxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0x1f/pi-smart-proxy.git"
+  },
+  "files": [
+    "extensions/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "test": "node --test tests/smart-proxy.test.ts",
+    "prepublishOnly": "npm test"
+  },
+  "dependencies": {
+    "undici": "8.10.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/smart-proxy/index.ts"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
