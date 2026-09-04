@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { domainToASCII } from "node:url";
@@ -182,6 +182,21 @@ function readConfig(): SmartProxyConfig {
   return parseConfig(value);
 }
 
+function writeConfig(text: string): void {
+  const temporary = `${CONFIG_PATH}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(temporary, text.endsWith("\n") ? text : `${text}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+    renameSync(temporary, CONFIG_PATH);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
 function createProxyDispatcher(proxyUrl: string): Dispatcher {
   const url = new URL(proxyUrl);
   return url.protocol === "socks:" || url.protocol === "socks5:"
@@ -272,8 +287,8 @@ export default function smartProxy(pi: ExtensionAPI): void {
   let active: RoutingDispatcher | undefined;
   let previous: Dispatcher | undefined;
 
-  const install = (): RoutingDispatcher => {
-    const next = new RoutingDispatcher(readConfig());
+  const install = (config = readConfig()): RoutingDispatcher => {
+    const next = new RoutingDispatcher(config);
     const current = getGlobalDispatcher();
     try {
       setGlobalDispatcher(next);
@@ -331,6 +346,45 @@ export default function smartProxy(pi: ExtensionAPI): void {
         ctx.ui.notify(ctx.ui.theme.fg("success", "smart-proxy configuration reloaded"), "info");
       } catch (error) {
         ctx.ui.notify(`smart-proxy reload failed: ${errorText(error)}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("proxy-edit", {
+    description: "Edit smart proxy configuration",
+    handler: async (_args, ctx) => {
+      let draft: string;
+      try {
+        draft = existsSync(CONFIG_PATH)
+          ? readFileSync(CONFIG_PATH, "utf8")
+          : `${JSON.stringify({ default: DIRECT, proxies: {}, rules: [] }, null, 2)}\n`;
+      } catch (error) {
+        ctx.ui.notify(`smart-proxy cannot open config: ${errorText(error)}`, "error");
+        return;
+      }
+
+      for (;;) {
+        const edited = await ctx.ui.editor(`Edit ${CONFIG_PATH}`, draft);
+        if (edited === undefined) return;
+
+        let config: SmartProxyConfig;
+        try {
+          config = parseConfig(JSON.parse(edited));
+        } catch (error) {
+          draft = edited;
+          ctx.ui.notify(`invalid smart-proxy config: ${errorText(error)}`, "error");
+          continue;
+        }
+
+        try {
+          writeConfig(edited);
+          const dispatcher = install(config);
+          setStatus(ctx, dispatcher);
+          ctx.ui.notify(ctx.ui.theme.fg("success", "smart-proxy configuration saved and reloaded"), "info");
+        } catch (error) {
+          ctx.ui.notify(`smart-proxy apply failed: ${errorText(error)}`, "error");
+        }
+        return;
       }
     },
   });

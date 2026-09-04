@@ -18,7 +18,7 @@ index.ts                          # Local auto-discovery compatibility loader
 Requires Node.js 22.19 or newer. Install the tagged Git repository:
 
 ```bash
-pi install git:github.com/0x1f/pi-smart-proxy@v0.1.0
+pi install git:github.com/0x1f/pi-smart-proxy@v0.1.1
 ```
 
 ## Configure
@@ -72,10 +72,13 @@ Percent-encode reserved characters in credentials, such as `@` as `%40`. `/proxy
 Restart Pi or run `/reload`, then use:
 
 ```text
+/proxy-edit
 /proxy-status
 /proxy-reload
 /proxy-test api.x.ai
 ```
+
+`/proxy-edit` opens the current JSON in Pi's multiline editor, validates it before an atomic `0600` save, and reloads it immediately. Canceling leaves the file unchanged.
 
 ## Notes
 

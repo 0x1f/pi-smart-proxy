@@ -55,6 +55,7 @@ test("extension installs and restores the global dispatcher", async () => {
   const commands = new Map<string, unknown>();
   const notifications: string[] = [];
   const statuses: string[] = [];
+  let editorOpened = false;
   smartProxy({
     on(name: string, handler: (event: unknown, ctx: any) => unknown) {
       events.set(name, handler);
@@ -74,6 +75,11 @@ test("extension installs and restores the global dispatcher", async () => {
       notify(message: string) {
         notifications.push(message);
       },
+      async editor(_title: string, prefill: string) {
+        editorOpened = true;
+        assert.match(prefill, /"default"/);
+        return undefined;
+      },
       setStatus(_id: string, text: string | undefined) {
         if (text) statuses.push(text);
       },
@@ -84,7 +90,11 @@ test("extension installs and restores the global dispatcher", async () => {
   assert.notEqual(getGlobalDispatcher(), before);
   assert.match(statuses[0]!, /^<accent>proxy:/);
   assert.match(notifications[0]!, /^<success>smart-proxy enabled \(/);
-  assert.deepEqual([...commands.keys()], ["proxy-reload", "proxy-status", "proxy-test"]);
+  assert.deepEqual([...commands.keys()], ["proxy-reload", "proxy-edit", "proxy-status", "proxy-test"]);
+
+  const edit = commands.get("proxy-edit") as { handler(args: string, context: unknown): Promise<void> };
+  await edit.handler("", ctx);
+  assert.equal(editorOpened, true);
 
   const status = commands.get("proxy-status") as { handler(args: string, context: unknown): Promise<void> };
   await status.handler("", ctx);

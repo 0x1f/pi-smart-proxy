@@ -1,6 +1,6 @@
 {
   "name": "@0x1f/pi-smart-proxy",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Domain-based direct, HTTP, and SOCKS5 proxy routing for Pi",
   "license": "MIT",
   "type": "module",
