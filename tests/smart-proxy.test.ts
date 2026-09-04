@@ -58,7 +58,7 @@ test("routing picks the first matching rule and otherwise uses the default", asy
   await dispatcher.close();
 });
 
-test("extension installs and restores the global dispatcher", async () => {
+test("extension starts quietly and restores the global dispatcher", async () => {
   const events = new Map<string, (event: unknown, ctx: any) => unknown>();
   const commands = new Map<string, unknown>();
   const notifications: string[] = [];
@@ -97,7 +97,7 @@ test("extension installs and restores the global dispatcher", async () => {
   await events.get("session_start")!({}, ctx);
   assert.notEqual(getGlobalDispatcher(), before);
   assert.match(statuses[0]!, /^<accent>proxy:/);
-  assert.match(notifications[0]!, /^<success>smart-proxy enabled \(/);
+  assert.deepEqual(notifications, []);
   assert.deepEqual([...commands.keys()], ["proxy-reload", "proxy-edit", "proxy-status", "proxy-test"]);
 
   const edit = commands.get("proxy-edit") as { handler(args: string, context: unknown): Promise<void> };

@@ -319,10 +319,6 @@ export default function smartProxy(pi: ExtensionAPI): void {
     try {
       const dispatcher = install();
       setStatus(ctx, dispatcher);
-      ctx.ui.notify(
-        ctx.ui.theme.fg("success", `smart-proxy enabled (${dispatcher.config.default} by default)`),
-        "info",
-      );
     } catch (error) {
       ctx.ui.setStatus(STATUS_ID, "proxy: config error");
       ctx.ui.notify(`smart-proxy failed: ${errorText(error)}`, "error");
