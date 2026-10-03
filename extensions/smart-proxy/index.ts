@@ -365,12 +365,25 @@ function testUrl(input: string): URL {
 export default function smartProxy(pi: ExtensionAPI): void {
   let active: RoutingDispatcher | undefined;
   let previous: Dispatcher | undefined;
+  // Node 内建 fetch 与 undici 包是两个独立实现：`globalThis.fetch` 用的是
+  // Node 自己的 undici 实例，`setGlobalDispatcher` 只作用于 npm undici 包。
+  // 实测 `globalThis.fetch === undici.fetch` 为 false，后果是所有直接用
+  // 全局 fetch 的扩展（如 pi-ai 的 backend-api 调用）完全绕过本扩展的路由，
+  // 表现为 fetch failed / 直连超时，而 pi 自身的模型请求正常。
+  // 覆写后它们才真正走 smart-proxy——这是补全覆盖面，不是替某个扩展打补丁。
+  const builtinFetch = globalThis.fetch;
+  let fetchOverridden = false;
 
   const install = (config = readConfig()): RoutingDispatcher => {
     const next = new RoutingDispatcher(config);
     const current = getGlobalDispatcher();
     try {
       setGlobalDispatcher(next);
+      // 见文件顶部注释：不覆写的话，内建 fetch 不受本 dispatcher 影响。
+      if (globalThis.fetch !== undiciFetch) {
+        globalThis.fetch = undiciFetch as unknown as typeof globalThis.fetch;
+        fetchOverridden = true;
+      }
     } catch (error) {
       void next.close();
       throw error;
@@ -406,6 +419,10 @@ export default function smartProxy(pi: ExtensionAPI): void {
 
     try {
       if (previous && getGlobalDispatcher() === dispatcher) setGlobalDispatcher(previous);
+      if (fetchOverridden) {
+        globalThis.fetch = builtinFetch;
+        fetchOverridden = false;
+      }
     } finally {
       await dispatcher.close().catch(() => {});
       previous = undefined;
